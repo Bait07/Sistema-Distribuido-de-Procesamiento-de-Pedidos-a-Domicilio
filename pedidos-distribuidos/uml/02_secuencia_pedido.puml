@@ -1,0 +1,59 @@
+@startuml secuencia_pedido
+!include estilo.iuml
+autonumber "<b>0."
+title Diagrama de secuencia: procesamiento de un pedido entre nodos e hilos
+
+actor Cliente
+box "Nodo Gateway" #FAFBFD
+participant "Hilo HTTP\n(petición)" as H
+participant "CircuitBreaker" as CB
+participant "Hilo suscriptor" as SG
+end box
+box "Nodo Broker" #FAFBFD
+participant "Hilo de conexión" as B
+end box
+box "Nodo Trabajador k" #FAFBFD
+participant "Hilo consumidor i" as W
+end box
+participant "Notificador" as N
+
+== Fase síncrona: recepción ==
+Cliente -> H : POST /pedidos {cliente, items, total}
+activate H
+H -> H : validar(pedido)
+H -> CB : llamar(encolar)
+activate CB
+CB -> B : {"op":"encolar","cola":"pedidos"}
+activate B
+B -> B : cola.append(); notify()
+B --> CB : {"ok": true}
+deactivate B
+CB --> H : ok (estado CERRADO)
+deactivate CB
+H --> Cliente : 202 Accepted {id}
+deactivate H
+
+== Fase asíncrona: procesamiento concurrente ==
+W -> B : {"op":"obtener","ack":true}  (bloqueado en espera)
+activate W
+B --> W : {"id": m, "msg": pedido}
+note right of B : el mensaje queda\n"en vuelo" hasta el ack
+W -> B : publicar pedido.estado = en_proceso
+B -> SG : evento en_proceso
+W -> W : validar inventario (5 ms)\ncobrar (20 ms)\nasignar repartidor (15 ms)
+W -> B : publicar pedido.estado = completado
+par Observer distribuido
+  B -> SG : evento completado
+  SG -> SG : actualizar estado y latencia
+else
+  B -> N : evento completado
+  N -> N : notificar al cliente
+end
+W -> B : {"op":"ack","id": m}
+B -> B : eliminar de "en vuelo"
+deactivate W
+
+== Consulta ==
+Cliente -> H : GET /pedidos/{id}
+H --> Cliente : 200 {estado: completado, trabajador}
+@enduml

@@ -1,0 +1,41 @@
+@startuml secuencia_fallas
+!include estilo.iuml
+title Diagrama de secuencia: tolerancia a fallas
+
+participant "Trabajador 2\n(hilo i)" as W2
+participant "Broker" as B
+participant "Trabajador 1\n(hilo j)" as W1
+participant "Monitor" as M
+participant "Gateway\nCircuitBreaker" as CB
+actor Cliente
+
+== Escenario A: caída abrupta de un trabajador ==
+W2 -> B : obtener(ack=true)
+B --> W2 : pedido m (en vuelo)
+W2 -> W2 : procesando...
+destroy W2
+note over W2 : proceso terminado\n(kill)
+B -> B : conexión cerrada:\nreencolar m al frente
+W1 -> B : obtener(ack=true)
+B --> W1 : pedido m (reentrega)
+W1 -> B : ack(m)
+... 1,5 s sin heartbeat ...
+M -> M : TRABAJADOR-2 sin latidos
+M -> B : publicar nodo.estado = CAIDO
+
+== Escenario B: el broker deja de responder ==
+Cliente -> CB : POST /pedidos
+CB -> B : encolar (timeout 1 s)
+B -->x CB : sin respuesta
+note right of CB : falla 1..3\nestado CERRADO
+CB -> CB : 3 fallas seguidas: ABIERTO
+Cliente -> CB : POST /pedidos
+CB --> Cliente : 503 inmediato (~1 ms)
+... 2 s de reposo ...
+CB -> CB : SEMIABIERTO
+Cliente -> CB : POST /pedidos
+CB -> B : encolar (llamada de prueba)
+B --> CB : ok
+CB -> CB : CERRADO
+CB --> Cliente : 202 Accepted
+@enduml

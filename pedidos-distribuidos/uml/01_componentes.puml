@@ -1,0 +1,55 @@
+@startuml componentes
+!include estilo.iuml
+top to bottom direction
+title Diagrama de componentes: Sistema Distribuido de Pedidos
+
+actor "Cliente\n(app o web)" as cliente
+
+package "Nodo Gateway" {
+  component "API Gateway\n<<Proxy>>" as gw
+  component "CircuitBreaker" as cb
+  component "PoolConexiones" as pool
+  component "SuscriptorEstados\n<<Observer>>" as subgw
+  interface "REST /pedidos\n/metricas" as rest
+}
+
+package "Nodo Broker" {
+  component "Broker de mensajes\n<<Mediator>>" as broker
+  queue "Cola 'pedidos'\n(con ack)" as cola
+  component "Bus de temas\n(pub/sub)" as bus
+}
+
+package "Nodos Trabajadores (1..N)" {
+  component "Trabajador\n<<Thread Pool>>" as trab
+  component "Hilo consumidor x K" as hilo
+  component "Emisor de heartbeat" as hb
+}
+
+package "Nodo Notificador" {
+  component "Notificador\n<<Observer>>" as noti
+}
+
+package "Nodo Monitor" {
+  component "Monitor de salud" as mon
+}
+
+interface "TCP JSON Lines\n:5500" as tcp
+
+cliente --> rest : HTTP POST / GET
+rest -- gw
+gw --> cb : protege la llamada
+cb --> pool
+pool --> tcp : encolar
+gw ..> subgw
+subgw --> tcp : suscribir pedido.estado
+tcp -- broker
+broker --> cola
+broker --> bus
+hilo --> tcp : obtener / ack
+trab *-- hilo
+trab *-- hb
+hilo --> tcp : publicar pedido.estado
+hb --> tcp : publicar heartbeat
+noti --> tcp : suscribir pedido.estado, nodo.estado
+mon --> tcp : suscribir heartbeat\npublicar nodo.estado
+@enduml

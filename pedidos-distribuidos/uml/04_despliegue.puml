@@ -1,0 +1,52 @@
+@startuml despliegue
+!include estilo.iuml
+title Diagrama de despliegue: distribución física y lógica
+
+node "Dispositivo del cliente" as dev {
+  artifact "Navegador / app\ncliente_carga.py" as app
+}
+
+node "Servidor de borde\n<<VM / contenedor>>" as edge {
+  node "Proceso Python 3\n:8080" as pgw {
+    artifact "gateway.py" as agw
+  }
+}
+
+node "Servidor de mensajería\n<<VM / contenedor>>" as msg {
+  node "Proceso Python 3\n:5500" as pbr {
+    artifact "broker.py" as abr
+  }
+}
+
+node "Grupo de cómputo\n<<escalable horizontalmente>>" as farm {
+  node "Trabajador 1\n<<proceso>>" as t1 {
+    artifact "trabajador.py\n8 hilos" as at1
+  }
+  node "Trabajador 2\n<<proceso>>" as t2 {
+    artifact "trabajador.py\n8 hilos" as at2
+  }
+  node "Trabajador N\n<<proceso>>" as tn {
+    artifact "trabajador.py\n8 hilos" as atn
+  }
+}
+
+node "Servidor de servicios auxiliares" as aux {
+  node "Notificador\n<<proceso>>" as pn {
+    artifact "notificador.py" as an
+  }
+  node "Monitor\n<<proceso>>" as pm {
+    artifact "monitor.py" as am
+  }
+}
+
+dev --> edge : HTTP/1.1 (REST, JSON)
+edge --> msg : TCP JSON Lines\n(pool de conexiones)
+farm --> msg : TCP JSON Lines\n(1 conexión por hilo)
+aux --> msg : TCP JSON Lines\n(suscripción)
+
+note bottom of farm
+En el prototipo todos los nodos corren como procesos
+independientes en 127.0.0.1 (cluster.py); en producción
+cada nodo sería un contenedor en la nube.
+end note
+@enduml
